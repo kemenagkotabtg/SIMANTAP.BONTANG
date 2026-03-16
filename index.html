@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIMANTAP - Kemenag Bontang</title>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        kemenag: {
+                            green: '#006633',
+                            light: '#008844',
+                            yellow: '#FDB813'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; }
+        .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+        .sidebar-active { border-left: 4px solid #FDB813; background-color: rgba(255, 255, 255, 0.1); }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // --- MOCK DATABASE (Bisa diganti dengan Fetch ke Google Apps Script) ---
+        const SATKER_OPTIONS = ["Kepala Kemenag", "TU", "Pendis", "Bimas", "ZAWA", "KUA Barat", "KUA Selatan", "KUA Utara"];
+        
+        const initialUsers = [
+            { id: 1, nama: "Kepala Kantor", nip: "10000001", password: "admin", role: "admin", jabatan: "Kepala Kemenag", pangkat: "IV/b", satker: "Kepala Kemenag", status: "verified" },
+            { id: 2, nama: "Admin TU", nip: "10000002", password: "admin", role: "admin", jabatan: "Kasubag TU", pangkat: "IV/a", satker: "TU", status: "verified" },
+            { id: 3, nama: "Admin Pendis", nip: "10000003", password: "admin", role: "admin", jabatan: "Kasi Pendis", pangkat: "III/d", satker: "Pendis", status: "verified" },
+            { id: 4, nama: "Admin Bimas", nip: "10000004", password: "admin", role: "admin", jabatan: "Kasi Bimas Islam", pangkat: "III/d", satker: "Bimas", status: "verified" },
+            { id: 5, nama: "Admin ZAWA", nip: "10000005", password: "admin", role: "admin", jabatan: "Penyelenggara ZAWA", pangkat: "III/c", satker: "ZAWA", status: "verified" },
+            { id: 6, nama: "Kepala KUA Barat", nip: "10000006", password: "admin", role: "admin", jabatan: "Kepala KUA", pangkat: "III/c", satker: "KUA Barat", status: "verified" },
+            { id: 7, nama: "Kepala KUA Selatan", nip: "10000007", password: "admin", role: "admin", jabatan: "Kepala KUA", pangkat: "III/c", satker: "KUA Selatan", status: "verified" },
+            { id: 8, nama: "Kepala KUA Utara", nip: "10000008", password: "admin", role: "admin", jabatan: "Kepala KUA", pangkat: "III/c", satker: "KUA Utara", status: "verified" },
+            { id: 9, nama: "Budi Santoso", nip: "19900202", password: "123", role: "pegawai", jabatan: "Staf", pangkat: "III/b", satker: "TU", status: "verified" }
+        ];
+
+        const initialTasks = [
+            { id: 101, adminId: 1, pegawaiId: 2, jenis: "Penting", deskripsi: "Siapkan laporan bulanan", deadline: "2026-03-20", linkSurat: "http://link.surat", status: "Proses", waktuPengerjaan: "", tempat: "", kendala: "", linkBukti: "", penilaian: "" }
+        ];
+
+        const initialReports = [
+            { id: 201, pegawaiId: 2, kerja: "Menyusun draft laporan bulanan", deskripsi: "Merekap data dari seluruh seksi", kendala: "Data Bimas terlambat", waktu: "2026-03-15", tempat: "Ruang TU", linkBukti: "http://link.bukti", penilaianAdmin: "Baik", rekomendasi: "" }
+        ];
+
+        // --- MAIN APP COMPONENT ---
+        const App = () => {
+            const [users, setUsers] = useState(initialUsers);
+            const [tasks, setTasks] = useState(initialTasks);
+            const [reports, setReports] = useState(initialReports);
+            const [currentUser, setCurrentUser] = useState(null);
+            const [view, setView] = useState('login'); // login, register, dashboard
+            const [activeTab, setActiveTab] = useState('home');
+
+            // URL Google Apps Script Anda nanti diisi di sini
+            const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby-NEz5WhhPRWwbWKVpNECimkkm0id44OnLYaPX7iX5HhgVOyIu3v4RLgBk6m4IXEsTvQ/exec"; 
+
+            // --- AUTH LOGIC ---
+            const handleLogin = (nip, password) => {
+                const user = users.find(u => u.nip === nip && u.password === password);
+                if (user) {
+                    if (user.status !== "verified") {
+                        alert("Akun Anda belum diverifikasi oleh Admin.");
+                        return;
+                    }
+                    setCurrentUser(user);
+                    setView('dashboard');
+                    setActiveTab('home');
+                } else {
+                    alert("NIP atau Password salah!");
+                }
+            };
+
+            const handleRegister = (newUser) => {
+                const isExist = users.find(u => u.nip === newUser.nip);
+                if (isExist) return alert("NIP sudah terdaftar!");
+                
+                const user = { 
+                    ...newUser, 
+                    id: Date.now(), 
+                    role: "pegawai", 
+                    status: "pending" 
+                };
+                setUsers([...users, user]);
+                alert("Pendaftaran berhasil! Silakan tunggu verifikasi admin.");
+                setView('login');
+            };
+
+            const handleLogout = () => {
+                setCurrentUser(null);
+                setView('login');
+            };
+
+            // --- RENDERERS ---
+            if (view === 'login') return <Login onLogin={handleLogin} onGoRegister={() => setView('register')} />;
+            if (view === 'register') return <Register onRegister={handleRegister} onGoLogin={() => setView('login')} />;
+            
+            return (
+                <div className="flex h-screen overflow-hidden bg-gray-100">
+                    {/* Sidebar */}
+                    <div className="w-64 bg-kemenag-green text-white flex flex-col shadow-xl">
+                        <div className="p-5 flex items-center justify-center border-b border-green-800">
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/f/f2/Lambang_Kementerian_Agama.png" alt="Logo Kemenag" className="w-10 h-10 mr-3" onError={(e) => e.target.style.display='none'}/>
+                            <div>
+                                <h1 className="text-xl font-bold text-kemenag-yellow">SIMANTAP</h1>
+                                <p className="text-xs text-gray-200">Kemenag Bontang</p>
+                            </div>
+                        </div>
+                        
+                        <div className="p-4 flex items-center border-b border-green-800 bg-green-900 bg-opacity-50">
+                            <div className="w-10 h-10 rounded-full bg-white text-kemenag-green flex items-center justify-center font-bold text-xl mr-3">
+                                {currentUser.nama.charAt(0)}
+                            </div>
+                            <div>
+                                <p className="text-sm font-semibold">{currentUser.nama}</p>
+                                <p className="text-xs text-kemenag-yellow capitalize">{currentUser.role} {currentUser.role === 'admin' ? `(${currentUser.satker})` : ''}</p>
+                            </div>
+                        </div>
+
+                        <nav className="flex-1 py-4">
+                            <NavItem icon="fa-home" label="Home" active={activeTab === 'home'} onClick={() => setActiveTab('home')} />
+                            <NavItem icon="fa-tasks" label="e-Disposisi" active={activeTab === 'edisposisi'} onClick={() => setActiveTab('edisposisi')} />
+                            <NavItem icon="fa-chart-line" label="Laporan Kinerja" active={activeTab === 'laporan'} onClick={() => setActiveTab('laporan')} />
+                            <NavItem icon="fa-users" label="Daftar Pegawai" active={activeTab === 'pegawai'} onClick={() => setActiveTab('pegawai')} />
+                        </nav>
+                        <div className="p-4">
+                            <button onClick={handleLogout} className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded shadow transition">
+                                <i className="fa-solid fa-sign-out-alt mr-2"></i> Logout
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Main Content */}
+                    <div className="flex-1 flex flex-col overflow-y-auto">
+                        <div className="bg-white shadow p-4 flex justify-between items-center">
+                            <h2 className="text-xl font-semibold text-gray-800 capitalize">
+                                <i className={`mr-2 fa-solid ${activeTab === 'home' ? 'fa-home' : activeTab === 'edisposisi' ? 'fa-tasks' : activeTab === 'laporan' ? 'fa-chart-line' : 'fa-users'} text-kemenag-green`}></i>
+                                {activeTab.replace('edisposisi', 'e-Disposisi').replace('laporan', 'Laporan Kinerja').replace('pegawai', 'Daftar Pegawai')}
+                            </h2>
+                            <div className="text-sm text-gray-500">{new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                        </div>
+                        
+                        <div className="p-6 flex-1">
+                            {currentUser.role === 'admin' ? (
+                                <AdminDashboard 
+                                    tab={activeTab} users={users} setUsers={setUsers} 
+                                    tasks={tasks} setTasks={setTasks} 
+                                    reports={reports} setReports={setReports} 
+                                    currentUser={currentUser}
+                                />
+                            ) : (
+                                <PegawaiDashboard 
+                                    tab={activeTab} users={users} 
+                                    tasks={tasks} setTasks={setTasks} 
+                                    reports={reports} setReports={setReports} 
+                                    currentUser={currentUser}
+                                />
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const NavItem = ({ icon, label, active, onClick }) => (
+            <div onClick={onClick} className={`px-6 py-3 cursor-pointer hover:bg-white hover:bg-opacity-10 transition flex items-center ${active ? 'sidebar-active text-white font-semibold' : 'text-gray-300'}`}>
+                <i className={`fa-solid ${icon} w-6 text-center mr-2 ${active ? 'text-kemenag-yellow' : ''}`}></i>
+                <span>{label}</span>
+            </div>
+        );
+
+        // ================= ADMIN DASHBOARD =================
+        const AdminDashboard = ({ tab, users, setUsers, tasks, setTasks, reports, setReports, currentUser }) => {
+            const pegawais = users.filter(u => u.role === 'pegawai');
+
+            if (tab === 'home') {
+                const totalPegawai = pegawais.length;
+                const totalTugas = tasks.length;
+                const tugasSelesai = tasks.filter(t => t.status === 'Diselesaikan').length;
+                
+                return (
+                    <div className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <StatCard title="Total Pegawai" value={totalPegawai} icon="fa-users" color="bg-blue-500" />
+                            <StatCard title="Tugas Diberikan" value={totalTugas} icon="fa-file-signature" color="bg-kemenag-green" />
+                            <StatCard title="Tugas Selesai" value={tugasSelesai} icon="fa-check-circle" color="bg-kemenag-yellow text-gray-800" />
+                        </div>
+                        
+                        <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-kemenag-green">
+                            <h3 className="text-lg font-bold mb-4 text-gray-800">Matriks Kinerja Pegawai</h3>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-gray-100 text-gray-600 text-sm">
+                                            <th className="p-3 border-b">Nama Pegawai</th>
+                                            <th className="p-3 border-b">Satker</th>
+                                            <th className="p-3 border-b text-center">Tugas Selesai</th>
+                                            <th className="p-3 border-b text-center">Laporan Kinerja</th>
+                                            <th className="p-3 border-b">Predikat Rata-rata</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {pegawais.map(p => {
+                                            const pTasks = tasks.filter(t => t.pegawaiId === p.id && t.status === 'Diselesaikan').length;
+                                            const pReports = reports.filter(r => r.pegawaiId === p.id).length;
+                                            return (
+                                                <tr key={p.id} className="hover:bg-gray-50 border-b">
+                                                    <td className="p-3 font-medium">{p.nama}</td>
+                                                    <td className="p-3 text-sm text-gray-600">{p.satker}</td>
+                                                    <td className="p-3 text-center">{pTasks}</td>
+                                                    <td className="p-3 text-center">{pReports}</td>
+                                                    <td className="p-3">
+                                                        <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-semibold">Baik</span>
+                                                    </td>
+                                                </tr>
+                                            )
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (tab === 'edisposisi') {
+                const [form, setForm] = useState({ pegawaiId: '', jenis: 'Biasa', deskripsi: '', deadline: '', linkSurat: '' });
+
+                const handleSubmit = (e) => {
+                    e.preventDefault();
+                    if(!form.pegawaiId) return alert("Pilih pegawai!");
+                    const newTask = { ...form, id: Date.now(), adminId: currentUser.id, status: 'Menunggu', waktuPengerjaan: '', tempat: '', kendala: '', linkBukti: '', penilaian: '' };
+                    setTasks([...tasks, newTask]);
+                    setForm({ pegawaiId: '', jenis: 'Biasa', deskripsi: '', deadline: '', linkSurat: '' });
+                    alert("Tugas berhasil diberikan!");
+                };
+
+                const nilaiTugas = (id, nilai) => {
+                    setTasks(tasks.map(t => t.id === id ? { ...t, penilaian: nilai } : t));
+                };
+
+                return (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div className="bg-white p-6 rounded-lg shadow-md lg:col-span-1 h-fit border-t-4 border-kemenag-green">
+                            <h3 className="font-bold text-lg mb-4">Buat Tugas Baru</h3>
+                            <form onSubmit={handleSubmit} className="space-y-4">
+                                <div>
+                                    <label className="block text-sm text-gray-600 mb-1">Pegawai Tujuan</label>
+                                    <select className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-kemenag-green" value={form.pegawaiId} onChange={e=>setForm({...form, pegawaiId: e.target.value})} required>
+                                        <option value="">-- Pilih Pegawai --</option>
+                                        {pegawais.map(p => <option key={p.id} value={p.id}>{p.nama} ({p.satker})</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-gray-600 mb-1">Jenis Tugas</label>
+                                    <select className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-kemenag-green" value={form.jenis} onChange={e=>setForm({...form, jenis: e.target.value})}>
+                                        <option>Biasa</option>
+                                        <option>Penting</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-gray-600 mb-1">Deskripsi Tugas</label>
+                                    <textarea className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-kemenag-green" rows="3" value={form.deskripsi} onChange={e=>setForm({...form, deskripsi: e.target.value})} required></textarea>
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-gray-600 mb-1">Deadline</label>
+                                    <input type="date" className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-kemenag-green" value={form.deadline} onChange={e=>setForm({...form, deadline: e.target.value})} required />
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-gray-600 mb-1">Link Surat Tugas (Opsional)</label>
+                                    <input type="url" className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-kemenag-green" value={form.linkSurat} onChange={e=>setForm({...form, linkSurat: e.target.value})} placeholder="https://..." />
+                                </div>
+                                <button type="submit" className="w-full bg-kemenag-green text-white p-2 rounded hover:bg-green-800 transition">Kirim Tugas</button>
+                            </form>
+                        </div>
+                        <div className="bg-white p-6 rounded-lg shadow-md lg:col-span-2 border-t-4 border-kemenag-yellow">
+                            <h3 className="font-bold text-lg mb-4">Daftar Disposisi</h3>
+                            <div className="space-y-4">
+                                {tasks.map(t => {
+                                    const p = users.find(u => u.id == t.pegawaiId);
+                                    return (
+                                        <div key={t.id} className="border rounded-lg p-4 flex flex-col justify-between">
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div>
+                                                    <span className={`text-xs px-2 py-1 rounded font-bold ${t.jenis==='Penting' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{t.jenis}</span>
+                                                    <h4 className="font-bold mt-2 text-gray-800">{t.deskripsi}</h4>
+                                                    <p className="text-sm text-gray-500">Kepada: {p?.nama} | Deadline: {t.deadline}</p>
+                                                </div>
+                                                <span className={`text-xs px-2 py-1 rounded ${t.status==='Diselesaikan' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{t.status}</span>
+                                            </div>
+                                            
+                                            {t.status === 'Diselesaikan' && (
+                                                <div className="mt-3 p-3 bg-gray-50 rounded text-sm border-l-4 border-kemenag-green">
+                                                    <p><strong>Laporan Pengerjaan:</strong> Bukti: <a href={t.linkBukti} className="text-blue-600 underline" target="_blank">Lihat</a>, Kendala: {t.kendala}</p>
+                                                    {!t.penilaian ? (
+                                                        <div className="mt-2 flex space-x-2">
+                                                            <span className="self-center font-semibold text-gray-600">Beri Nilai:</span>
+                                                            <button onClick={() => nilaiTugas(t.id, 'Sangat Baik')} className="bg-green-500 text-white px-2 py-1 rounded text-xs hover:bg-green-600">Sangat Baik</button>
+                                                            <button onClick={() => nilaiTugas(t.id, 'Baik')} className="bg-blue-500 text-white px-2 py-1 rounded text-xs hover:bg-blue-600">Baik</button>
+                                                            <button onClick={() => nilaiTugas(t.id, 'Kurang Baik')} className="bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600">Kurang Baik</button>
+                                                        </div>
+                                                    ) : (
+                                                        <p className="mt-2"><strong>Penilaian:</strong> <span className="text-kemenag-green font-bold">{t.penilaian}</span></p>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )
+                                })}
+                                {tasks.length === 0 && <p className="text-gray-500 italic">Belum ada tugas diberikan.</p>}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (tab === 'laporan') {
+                const nilaiLaporan = (id, nilai, rekomendasi) => {
+                    setReports(reports.map(r => r.id === id ? { ...r, penilaianAdmin: nilai, rekomendasi } : r));
+                };
+
+                return (
+                    <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-blue-500">
+                        <h3 className="font-bold text-lg mb-4">Laporan Kinerja Pegawai</h3>
+                        <div className="space-y-4">
+                            {reports.map(r => {
+                                const p = users.find(u => u.id === r.pegawaiId);
+                                const [rekom, setRekom] = useState("");
+                                return (
+                                    <div key={r.id} className="border p-4 rounded-lg flex flex-col md:flex-row gap-4">
+                                        <div className="flex-1">
+                                            <h4 className="font-bold text-gray-800">{r.kerja}</h4>
+                                            <p className="text-sm text-gray-600 mb-2">Oleh: {p?.nama} | Tgl: {r.waktu} | Tempat: {r.tempat}</p>
+                                            <p className="text-sm text-gray-700">{r.deskripsi}</p>
+                                            {r.kendala && <p className="text-sm text-red-600 mt-1"><i className="fa-solid fa-triangle-exclamation mr-1"></i> Kendala: {r.kendala}</p>}
+                                            {r.linkBukti && <a href={r.linkBukti} target="_blank" className="text-sm text-blue-600 underline mt-2 inline-block"><i className="fa-solid fa-link"></i> Bukti Dukung</a>}
+                                        </div>
+                                        <div className="w-full md:w-1/3 bg-gray-50 p-3 rounded">
+                                            {!r.penilaianAdmin ? (
+                                                <div className="space-y-2">
+                                                    <label className="text-sm font-semibold text-gray-700">Penilaian:</label>
+                                                    <div className="flex gap-2">
+                                                        <button onClick={() => nilaiLaporan(r.id, 'Sangat Baik', '')} className="flex-1 bg-green-500 text-white text-xs py-1 rounded">Sgt Baik</button>
+                                                        <button onClick={() => nilaiLaporan(r.id, 'Baik', '')} className="flex-1 bg-blue-500 text-white text-xs py-1 rounded">Baik</button>
+                                                    </div>
+                                                    <div className="mt-2">
+                                                        <input type="text" placeholder="Catatan/Rekomendasi jika Kurang Baik" className="w-full p-1 text-sm border rounded mb-1" value={rekom} onChange={e=>setRekom(e.target.value)} />
+                                                        <button onClick={() => nilaiLaporan(r.id, 'Kurang Baik', rekom)} className="w-full bg-red-500 text-white text-xs py-1 rounded">Nilai Kurang Baik</button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <p className="text-sm"><strong>Nilai:</strong> <span className="text-kemenag-green">{r.penilaianAdmin}</span></p>
+                                                    {r.rekomendasi && <p className="text-sm mt-1 text-red-600"><strong>Catatan:</strong> {r.rekomendasi}</p>}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                            {reports.length === 0 && <p className="text-gray-500">Belum ada laporan.</p>}
+                        </div>
+                    </div>
+                );
+            }
+
+            if (tab === 'pegawai') {
+                const verifyUser = (id) => {
+                    setUsers(users.map(u => u.id === id ? { ...u, status: 'verified' } : u));
+                };
+                const deleteUser = (id) => {
+                    if(confirm("Tolak/Hapus pendaftar ini?")) {
+                        setUsers(users.filter(u => u.id !== id));
+                    }
+                }
+
+                return (
+                    <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-kemenag-yellow">
+                        <h3 className="font-bold text-lg mb-4">Verifikasi & Daftar Pegawai</h3>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="bg-gray-100 text-gray-600 text-sm">
+                                        <th className="p-3 border-b">Nama & NIP</th>
+                                        <th className="p-3 border-b">Jabatan & Golongan</th>
+                                        <th className="p-3 border-b">Satker</th>
+                                        <th className="p-3 border-b">Password</th>
+                                        <th className="p-3 border-b text-center">Status / Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {pegawais.map(p => (
+                                        <tr key={p.id} className="hover:bg-gray-50 border-b">
+                                            <td className="p-3">
+                                                <div className="font-bold text-gray-800">{p.nama}</div>
+                                                <div className="text-sm text-gray-500">{p.nip}</div>
+                                            </td>
+                                            <td className="p-3 text-sm text-gray-700">{p.jabatan} <br/><span className="text-xs text-gray-500">{p.pangkat}</span></td>
+                                            <td className="p-3 text-sm text-gray-700">{p.satker}</td>
+                                            <td className="p-3 text-sm font-mono text-gray-600 bg-gray-100 rounded px-2">{p.status === 'verified' ? p.password : '***'}</td>
+                                            <td className="p-3 text-center">
+                                                {p.status === 'pending' ? (
+                                                    <div className="flex gap-2 justify-center">
+                                                        <button onClick={() => verifyUser(p.id)} className="bg-green-500 text-white px-3 py-1 rounded text-xs hover:bg-green-600"><i className="fa-solid fa-check"></i> Terima</button>
+                                                        <button onClick={() => deleteUser(p.id)} className="bg-red-500 text-white px-3 py-1 rounded text-xs hover:bg-red-600"><i className="fa-solid fa-times"></i> Tolak</button>
+                                                    </div>
+                                                ) : (
+                                                    <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-semibold"><i className="fa-solid fa-check-circle"></i> Terverifikasi</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                );
+            }
+            return null;
+        };
+
+        // ================= PEGAWAI DASHBOARD =================
+        const PegawaiDashboard = ({ tab, users, tasks, setTasks, reports, setReports, currentUser }) => {
+            const myTasks = tasks.filter(t => t.pegawaiId === currentUser.id);
+            const myReports = reports.filter(r => r.pegawaiId === currentUser.id);
+
+            if (tab === 'home') {
+                return (
+                    <div className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <StatCard title="Tugas Diterima" value={myTasks.length} icon="fa-inbox" color="bg-blue-500" />
+                            <StatCard title="Tugas Diselesaikan" value={myTasks.filter(t=>t.status==='Diselesaikan').length} icon="fa-check-double" color="bg-kemenag-green" />
+                            <StatCard title="Laporan Kinerja" value={myReports.length} icon="fa-chart-bar" color="bg-purple-500" />
+                        </div>
+                        <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-kemenag-green">
+                            <h3 className="font-bold text-lg mb-4">Matriks Hasil Kinerja (Terbaru)</h3>
+                            <div className="space-y-3">
+                                {myReports.slice(0, 3).map(r => (
+                                    <div key={r.id} className="border-l-4 border-kemenag-green pl-4 py-2 bg-gray-50">
+                                        <p className="font-semibold text-gray-800">{r.kerja}</p>
+                                        <p className="text-sm text-gray-600">{r.waktu} | Penilaian Admin: <span className="font-bold text-kemenag-green">{r.penilaianAdmin || 'Menunggu'}</span></p>
+                                    </div>
+                                ))}
+                                {myReports.length === 0 && <p className="text-sm text-gray-500">Belum ada laporan kinerja yang dibuat.</p>}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (tab === 'edisposisi') {
+                const processTask = (id) => setTasks(tasks.map(t => t.id === id ? { ...t, status: 'Proses' } : t));
+                
+                const [form, setForm] = useState({ id: null, waktuPengerjaan: '', tempat: '', kendala: '', linkBukti: '' });
+                const finishTask = (e) => {
+                    e.preventDefault();
+                    setTasks(tasks.map(t => t.id === form.id ? { ...t, status: 'Diselesaikan', ...form } : t));
+                    setForm({ id: null, waktuPengerjaan: '', tempat: '', kendala: '', linkBukti: '' });
+                };
+
+                return (
+                    <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-blue-500">
+                        <h3 className="font-bold text-lg mb-4">Tugas dari Admin</h3>
+                        <div className="space-y-4">
+                            {myTasks.map(t => (
+                                <div key={t.id} className="border p-4 rounded-lg flex flex-col md:flex-row gap-4">
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <span className={`text-xs px-2 py-1 rounded font-bold ${t.jenis==='Penting' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{t.jenis}</span>
+                                            <span className={`text-xs px-2 py-1 rounded ${t.status==='Diselesaikan' ? 'bg-green-100 text-green-700' : t.status==='Proses' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>{t.status}</span>
+                                        </div>
+                                        <h4 className="font-bold text-gray-800 text-lg">{t.deskripsi}</h4>
+                                        <p className="text-sm text-gray-600 mt-1"><i className="fa-regular fa-calendar-alt w-5"></i> Deadline: {t.deadline}</p>
+                                        {t.linkSurat && <a href={t.linkSurat} target="_blank" className="text-sm text-blue-600 underline mt-1 inline-block"><i className="fa-solid fa-file-alt w-5"></i> Lihat Surat Tugas</a>}
+                                        
+                                        {t.status === 'Diselesaikan' && (
+                                            <div className="mt-3 p-3 bg-green-50 rounded text-sm text-green-800">
+                                                Telah diselesaikan. Penilaian Admin: <strong>{t.penilaian || 'Belum dinilai'}</strong>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="w-full md:w-1/3">
+                                        {t.status === 'Menunggu' && (
+                                            <button onClick={() => processTask(t.id)} className="w-full bg-blue-500 text-white py-2 rounded shadow hover:bg-blue-600">Terima & Proses</button>
+                                        )}
+                                        {t.status === 'Proses' && form.id !== t.id && (
+                                            <button onClick={() => setForm({ ...form, id: t.id })} className="w-full bg-kemenag-green text-white py-2 rounded shadow hover:bg-green-800">Selesaikan Tugas</button>
+                                        )}
+                                        {form.id === t.id && (
+                                            <form onSubmit={finishTask} className="bg-gray-50 p-3 rounded border text-sm space-y-2">
+                                                <input type="text" placeholder="Waktu Pengerjaan (Misal: 2 Jam)" className="w-full p-2 border rounded" required value={form.waktuPengerjaan} onChange={e=>setForm({...form, waktuPengerjaan: e.target.value})}/>
+                                                <input type="text" placeholder="Tempat" className="w-full p-2 border rounded" required value={form.tempat} onChange={e=>setForm({...form, tempat: e.target.value})}/>
+                                                <input type="text" placeholder="Kendala (Jika ada)" className="w-full p-2 border rounded" value={form.kendala} onChange={e=>setForm({...form, kendala: e.target.value})}/>
+                                                <input type="url" placeholder="Link Bukti Dukung (G-Drive dll)" className="w-full p-2 border rounded" required value={form.linkBukti} onChange={e=>setForm({...form, linkBukti: e.target.value})}/>
+                                                <div className="flex gap-2">
+                                                    <button type="submit" className="flex-1 bg-green-600 text-white p-2 rounded">Kirim</button>
+                                                    <button type="button" onClick={() => setForm({id: null})} className="bg-gray-400 text-white p-2 rounded">Batal</button>
+                                                </div>
+                                            </form>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                            {myTasks.length === 0 && <p className="text-gray-500">Belum ada tugas.</p>}
+                        </div>
+                    </div>
+                );
+            }
+
+            if (tab === 'laporan') {
+                const [form, setForm] = useState({ kerja: '', deskripsi: '', kendala: '', waktu: '', tempat: '', linkBukti: '' });
+                const handleSubmit = (e) => {
+                    e.preventDefault();
+                    setReports([{ ...form, id: Date.now(), pegawaiId: currentUser.id, penilaianAdmin: '', rekomendasi: '' }, ...reports]);
+                    setForm({ kerja: '', deskripsi: '', kendala: '', waktu: '', tempat: '', linkBukti: '' });
+                    alert('Laporan berhasil dikirim!');
+                }
+
+                return (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div className="bg-white p-6 rounded-lg shadow-md lg:col-span-1 h-fit border-t-4 border-purple-500">
+                            <h3 className="font-bold text-lg mb-4">Input Kinerja Harian</h3>
+                            <form onSubmit={handleSubmit} className="space-y-3">
+                                <input type="text" placeholder="Pekerjaan" className="w-full p-2 border rounded text-sm" required value={form.kerja} onChange={e=>setForm({...form, kerja: e.target.value})}/>
+                                <textarea placeholder="Deskripsi" className="w-full p-2 border rounded text-sm" rows="2" required value={form.deskripsi} onChange={e=>setForm({...form, deskripsi: e.target.value})}></textarea>
+                                <input type="text" placeholder="Kendala (Opsional)" className="w-full p-2 border rounded text-sm" value={form.kendala} onChange={e=>setForm({...form, kendala: e.target.value})}/>
+                                <input type="date" className="w-full p-2 border rounded text-sm" required value={form.waktu} onChange={e=>setForm({...form, waktu: e.target.value})}/>
+                                <input type="text" placeholder="Tempat" className="w-full p-2 border rounded text-sm" required value={form.tempat} onChange={e=>setForm({...form, tempat: e.target.value})}/>
+                                <input type="url" placeholder="Link Bukti Dukung" className="w-full p-2 border rounded text-sm" required value={form.linkBukti} onChange={e=>setForm({...form, linkBukti: e.target.value})}/>
+                                <button type="submit" className="w-full bg-purple-600 text-white p-2 rounded hover:bg-purple-700">Kirim Laporan</button>
+                            </form>
+                        </div>
+                        <div className="bg-white p-6 rounded-lg shadow-md lg:col-span-2 border-t-4 border-kemenag-green">
+                            <h3 className="font-bold text-lg mb-4">Riwayat Laporan</h3>
+                            <div className="space-y-3">
+                                {myReports.map(r => (
+                                    <div key={r.id} className="border p-4 rounded-lg flex justify-between">
+                                        <div>
+                                            <h4 className="font-bold">{r.kerja}</h4>
+                                            <p className="text-xs text-gray-500 mb-1">{r.waktu} | {r.tempat}</p>
+                                            <p className="text-sm">{r.deskripsi}</p>
+                                        </div>
+                                        <div className="text-right ml-4">
+                                            <span className={`text-xs px-2 py-1 rounded font-semibold ${r.penilaianAdmin ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>{r.penilaianAdmin || 'Menunggu Nilai'}</span>
+                                            {r.rekomendasi && <p className="text-xs text-red-600 mt-2 text-right">Rek: {r.rekomendasi}</p>}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (tab === 'pegawai') {
+                const temanSatker = users.filter(u => u.satker === currentUser.satker && u.status === 'verified');
+                return (
+                    <div className="bg-white p-6 rounded-lg shadow-md border-t-4 border-kemenag-yellow">
+                        <h3 className="font-bold text-lg mb-4">Pegawai di Satker: {currentUser.satker}</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {temanSatker.map(p => (
+                                <div key={p.id} className="border p-4 rounded-lg flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center text-xl font-bold text-gray-600">
+                                        {p.nama.charAt(0)}
+                                    </div>
+                                    <div>
+                                        <h4 className="font-bold text-gray-800">{p.nama}</h4>
+                                        <p className="text-xs text-gray-500">{p.nip}</p>
+                                        <p className="text-xs text-kemenag-green mt-1 font-semibold">{p.jabatan}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            }
+            return null;
+        };
+
+        const StatCard = ({ title, value, icon, color }) => (
+            <div className={`${color} text-white p-6 rounded-lg shadow-md flex items-center justify-between`}>
+                <div>
+                    <h3 className="text-lg font-semibold opacity-90">{title}</h3>
+                    <p className="text-4xl font-bold mt-2">{value}</p>
+                </div>
+                <i className={`fa-solid ${icon} text-5xl opacity-40`}></i>
+            </div>
+        );
+
+        // ================= AUTH SCREENS =================
+        const Login = ({ onLogin, onGoRegister }) => {
+            const [nip, setNip] = useState('');
+            const [password, setPassword] = useState('');
+
+            const onSubmit = (e) => {
+                e.preventDefault();
+                onLogin(nip, password);
+            }
+
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-cover bg-center relative" style={{backgroundImage: 'url("https://images.unsplash.com/photo-1541888065-985160fa14df?q=80&w=2070&auto=format&fit=crop")'}}>
+                    <div className="absolute inset-0 bg-green-900 bg-opacity-70"></div>
+                    <div className="glass p-8 rounded-xl shadow-2xl w-full max-w-md z-10 relative border-t-8 border-kemenag-yellow">
+                        <div className="text-center mb-6">
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/f/f2/Lambang_Kementerian_Agama.png" alt="Logo Kemenag" className="w-16 h-16 mx-auto mb-2" onError={(e) => e.target.style.display='none'}/>
+                            <h2 className="text-2xl font-bold text-gray-800">SIMANTAP</h2>
+                            <p className="text-sm text-gray-600">Kemenag Kota Bontang</p>
+                        </div>
+                        <form onSubmit={onSubmit} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700">NIP / ID Pengguna</label>
+                                <div className="mt-1 relative rounded-md shadow-sm">
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <i className="fa-solid fa-user text-gray-400"></i>
+                                    </div>
+                                    <input type="text" className="focus:ring-kemenag-green focus:border-kemenag-green block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2 border" placeholder="Masukkan NIP" value={nip} onChange={e=>setNip(e.target.value)} required />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700">Password</label>
+                                <div className="mt-1 relative rounded-md shadow-sm">
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <i className="fa-solid fa-lock text-gray-400"></i>
+                                    </div>
+                                    <input type="password" className="focus:ring-kemenag-green focus:border-kemenag-green block w-full pl-10 sm:text-sm border-gray-300 rounded-md py-2 border" placeholder="Masukkan Password" value={password} onChange={e=>setPassword(e.target.value)} required />
+                                </div>
+                            </div>
+                            <button type="submit" className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-kemenag-green hover:bg-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-kemenag-green transition">
+                                Masuk Sistem
+                            </button>
+                        </form>
+                        <div className="mt-4 text-center text-sm">
+                            <p className="text-gray-600">Belum punya akun? <button onClick={onGoRegister} className="text-kemenag-green font-bold hover:underline">Daftar Pegawai</button></p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const Register = ({ onRegister, onGoLogin }) => {
+            const [form, setForm] = useState({ nama: '', nip: '', password: '', jabatan: '', pangkat: '', satker: SATKER_OPTIONS[0] });
+
+            const onSubmit = (e) => {
+                e.preventDefault();
+                onRegister(form);
+            }
+
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-gray-100 py-10">
+                    <div className="bg-white p-8 rounded-xl shadow-xl w-full max-w-lg border-t-8 border-kemenag-green">
+                        <div className="text-center mb-6">
+                            <h2 className="text-2xl font-bold text-gray-800">Daftar Akun Pegawai</h2>
+                            <p className="text-sm text-gray-600">SIMANTAP Kemenag Bontang</p>
+                        </div>
+                        <form onSubmit={onSubmit} className="space-y-4">
+                            <div><label className="text-sm text-gray-600">Nama Lengkap</label><input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-kemenag-green outline-none" required value={form.nama} onChange={e=>setForm({...form, nama: e.target.value})}/></div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="text-sm text-gray-600">NIP</label><input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-kemenag-green outline-none" required value={form.nip} onChange={e=>setForm({...form, nip: e.target.value})}/></div>
+                                <div><label className="text-sm text-gray-600">Password Baru</label><input type="password" className="w-full border p-2 rounded focus:ring-2 focus:ring-kemenag-green outline-none" required value={form.password} onChange={e=>setForm({...form, password: e.target.value})}/></div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div><label className="text-sm text-gray-600">Jabatan</label><input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-kemenag-green outline-none" required placeholder="Mis: Staf TU" value={form.jabatan} onChange={e=>setForm({...form, jabatan: e.target.value})}/></div>
+                                <div><label className="text-sm text-gray-600">Pangkat / Golongan</label><input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-kemenag-green outline-none" required placeholder="Mis: Penata / IIIc" value={form.pangkat} onChange={e=>setForm({...form, pangkat: e.target.value})}/></div>
+                            </div>
+                            <div>
+                                <label className="text-sm text-gray-600">Satuan Kerja (Satker)</label>
+                                <select className="w-full border p-2 rounded focus:ring-2 focus:ring-kemenag-green outline-none" required value={form.satker} onChange={e=>setForm({...form, satker: e.target.value})}>
+                                    {SATKER_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                            </div>
+                            <button type="submit" className="w-full bg-kemenag-green text-white py-2 rounded font-bold hover:bg-green-800 transition mt-4">Kirim Pendaftaran</button>
+                        </form>
+                        <div className="mt-4 text-center text-sm">
+                            <button onClick={onGoLogin} className="text-gray-500 hover:text-gray-800"><i className="fa-solid fa-arrow-left mr-1"></i> Kembali ke Login</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
